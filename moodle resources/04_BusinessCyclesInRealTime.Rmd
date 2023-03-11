@@ -1,0 +1,473 @@
+---
+title: "2. Turning points and nowcasting with MIDAS regressions."
+author: "Jaromir Baxa"
+date: "2022-09-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Outline:
+
+I. Inferring cyclical position: Filters.\
+II. End-sample bias: Quantitatively important?\
+III. Turning points\
+IV. MIDAS regression and nowcasting of GDP and inflation
+
+First, we infer the turning points in real-GDP. Next, we estimate the output gaps using the Hodrick-Prescott filter and we investigate the end sample bias. Then, we properties of the recent regression filter by Hamilton (2016). Finally, we will estimate the MIDAS model that uses high-frequency data to predict low frequency series.
+
+#### Preliminaries
+
+Libraries
+
+```{r}
+rm(list=ls())
+
+library(pdfetch)
+library(xts)
+library(ggplot2)
+#library(ggfortify) #translates autoplot for various applications, but not always compatible with forecast package
+library(forecast)
+library(tsbox) 
+library(seasonal)
+
+#Libraries for filtering:
+library(mFilter)
+library(neverhpfilter)
+```
+
+**Data:** Get data for real GDP from Eurostat using the pdfetch function:
+
+```{r}
+gdp_xts_q <- pdfetch_EUROSTAT("namq_10_gdp", S_ADJ="SCA", NA_ITEM="B1GQ", FREQ="Q", UNIT="CLV10_MEUR", GEO="CZ")
+```
+
+```{r}
+plot.xts(gdp_xts_q, col = "black", lwd = 2, main = "Real GDP, Czech Republic, mil. eur", grid.col = NA, yaxis.left = TRUE)
+```
+
+Conversion to ts object:
+
+```{r}
+gdp_xts_q <- ts_first_of_period(gdp_xts_q)
+gdp_ts <- ts_ts(gdp_xts_q)
+gdp <- gdp_ts
+
+log_gdp <- log(gdp)
+```
+
+### I. Filters
+
+We start with the **Hodrick-Prescott filter**.
+
+```{r}
+# Hodrick-Prescott filter
+
+hp <- hpfilter(log_gdp,freq=1600,type="lambda")
+# residuals(hp)
+# fitted(hp)
+plot(hp)
+```
+
+**Baxter-King filter** for comparison
+
+```{r}
+# Baxter-King filter
+
+bk <- bkfilter(log_gdp)
+summary(bk)
+plot(bk)
+
+par(mfrow=c(1,1))
+plot(log_gdp, type="l")
+lines(hp$trend, col="red")
+lines(bk$trend, col="blue")
+```
+
+```{r}
+par(mfrow=c(1,2))
+hp_spectrum <- spectrum(hp$cycle)
+bk_spectrum <- spectrum(bk$cycle[13:93])
+# only part of the series bkcz$cycle is used so that NAs are skipped
+# other workaround:
+# good <- complete.cases(log_gdp,hp$trend,bk$trend)
+# bk_cycle = bk$cycle[good]
+# this will create a new series only with valid observations
+plot(hp_spectrum$freq, hp_spectrum$spec, type = "l")
+plot(bk_spectrum$freq, bk_spectrum$spec, type = "l")
+```
+
+Other filters that are available in library mFilter:
+
+Butterworth filter (band-pass):\
+`bwfilter(x,freq=NULL,nfix=NULL,drift=FALSE)`\
+Christiano-Fitzgerald filter (band-pass):\
+`cffilter(x,pl=NULL,pu=NULL,root=FALSE,drift=FALSE,`\
+`type=c("asymmetric","symmetric","fixed","baxter-king","trigonometric"),`\
+`nfix=NULL,theta=1)`\
+Trigoniometric filter, pl and pu are lower and upper cut-off frequencies, set in lengths of the period `trfilter(x,pl=NULL,pu=NULL)`.
+
+**Hamilton's regression filter**
+
+```{r}
+# Hamilton filter
+
+# Requires xts format
+log_gdp_xts <- ts_xts(log_gdp)
+#or manually:
+#dates <- seq(as.Date("1996-01-01"), length = 105, by = "quarters")
+#log_gdp_xts <- xts(log_gdp, order.by=dates)
+
+gdp_HAM <- yth_filter(log_gdp_xts, h= 8, p = 4)
+par(mfrow=c(1,1))
+plot(gdp_HAM["1995/"][,1:2], grid.col = "white", legend.loc = "topleft", main = "Log of Real GDP and trend", panels = 'lines(gdp_HAM["1995/"][,3], type="h", on=NA)')
+HAM_trend <- ts_ts(gdp_HAM$value.trend)
+HAM_cycle <- ts_ts(gdp_HAM$value.cycle)
+```
+
+```{r}
+plot(log_gdp, type="l", lwd=2)
+lines(hp$trend, col="red", lwd=1)
+lines(bk$trend, col="darkgrey", lwd=1)
+lines(HAM_trend, col="blue", lwd=1)
+```
+
+### II. End-sample bias
+
+Creating vintages and calculating HP filter on vintages.
+
+```{r}
+log_gdp_9617 <- window(log_gdp, start=1996, end=c(2017,1))
+log_gdp_9618 <- window(log_gdp, start=1996, end=c(2018,1))
+log_gdp_9619 <- window(log_gdp, start=1996, end=c(2019,1))
+log_gdp_9620 <- window(log_gdp, start=1996, end=c(2020,1))
+log_gdp_9621 <- window(log_gdp, start=1996, end=c(2021,1))
+
+hp17 <- hpfilter(log_gdp_9617,freq=1600,type="lambda")
+hp18 <- hpfilter(log_gdp_9618,freq=1600,type="lambda")
+hp19 <- hpfilter(log_gdp_9619,freq=1600,type="lambda")
+hp20 <- hpfilter(log_gdp_9620,freq=1600,type="lambda")
+hp21 <- hpfilter(log_gdp_9621,freq=1600,type="lambda")
+```
+
+```{r}
+plot(log_gdp, type="l", lwd=2, xlim=c(2010,2022), ylim=c(10.55,10.85))
+lines(hp$trend, col="red", lwd=2)
+lines(hp17$trend, col="green")
+lines(hp18$trend, col="darkblue")
+lines(hp19$trend, col="blue")
+lines(hp20$trend, col="gray")
+lines(hp21$trend, col="darkgreen")
+```
+
+```{r}
+plot(hp$cycle, type="l", col="red", lwd=2, xlim=c(2010,2022))
+lines(hp17$cycle, col="green")
+lines(hp18$cycle, col="darkblue")
+lines(hp19$cycle, col="blue")
+lines(hp20$cycle, col="gray")
+lines(hp21$cycle, col="darkgreen")
+abline(a=0,b=0,col="darkgray")
+```
+
+The same analysis with the Hamilton's regression filter.
+
+```{r}
+log_gdp_xts_9617 <- ts_xts(log_gdp_9617)
+log_gdp_xts_9618 <- ts_xts(log_gdp_9618)
+log_gdp_xts_9619 <- ts_xts(log_gdp_9619)
+log_gdp_xts_9620 <- ts_xts(log_gdp_9620)
+log_gdp_xts_9621 <- ts_xts(log_gdp_9621)
+
+gdp_HAM17 <- yth_filter(log_gdp_xts_9617, h= 8, p = 4)
+gdp_HAM18 <- yth_filter(log_gdp_xts_9618, h= 8, p = 4)
+gdp_HAM19 <- yth_filter(log_gdp_xts_9619, h= 8, p = 4)
+gdp_HAM20 <- yth_filter(log_gdp_xts_9620, h= 8, p = 4)
+gdp_HAM21 <- yth_filter(log_gdp_xts_9621, h= 8, p = 4)
+
+HAM_trend17 <- ts_ts(gdp_HAM17$value.trend)
+HAM_cycle17 <- ts_ts(gdp_HAM17$value.cycle)
+HAM_trend18 <- ts_ts(gdp_HAM18$value.trend)
+HAM_cycle18 <- ts_ts(gdp_HAM18$value.cycle)
+HAM_trend19 <- ts_ts(gdp_HAM19$value.trend)
+HAM_cycle19 <- ts_ts(gdp_HAM19$value.cycle)
+HAM_trend20 <- ts_ts(gdp_HAM20$value.trend)
+HAM_cycle20 <- ts_ts(gdp_HAM20$value.cycle)
+HAM_trend21 <- ts_ts(gdp_HAM21$value.trend)
+HAM_cycle21 <- ts_ts(gdp_HAM21$value.cycle)
+```
+
+```{r}
+plot(log_gdp, type="l", lwd=2, xlim=c(2010,2022), ylim=c(10.55,10.85))
+lines(HAM_trend, col="red", lwd=2)
+lines(HAM_trend17, col="green")
+lines(HAM_trend18, col="darkblue")
+lines(HAM_trend19, col="blue")
+lines(HAM_trend20, col="gray")
+lines(HAM_trend21, col="darkgreen")
+```
+
+```{r}
+plot(HAM_cycle, type="l", col="red", lwd=2, xlim=c(2010,2022))
+lines(HAM_cycle17, col="green")
+lines(HAM_cycle18, col="darkblue")
+lines(HAM_cycle19, col="blue")
+lines(HAM_cycle20, col="gray")
+lines(HAM_cycle21, col="darkgreen")
+abline(a=0,b=0,col="darkgray")
+```
+
+### III. Turning points: Real GDP
+
+```{r}
+T <- length(log_gdp) - 2
+peak <- vector()
+for(i in 3:T){
+  if(log_gdp[i-2] < log_gdp[i] & log_gdp[i-1] < log_gdp[i] & log_gdp[i] > log_gdp[i+1] & log_gdp[i] > log_gdp[i+2]){
+    peak <- c(peak, match(log_gdp[i], log_gdp))}}
+peak
+
+through <- vector()
+for(i in 3:T){
+  if(log_gdp[i-2]  > log_gdp[i] & log_gdp[i-1] > log_gdp[i] & log_gdp[i] < log_gdp[i+1] & log_gdp[i] < log_gdp[i+2]){
+    through <- c(through, match(log_gdp[i], log_gdp))}}
+through
+
+cbind(peak, through)
+
+library(Coinprofile)
+BB <- TP_BryBoschan(log_gdp, frequ = 4, year = 1996, month = 1)
+BB
+```
+
+### IV. MIDAS Regression
+
+Midas = Mixed frequency data sampling\
+Application: Nowcasting the GDP growth GDP growth with the help of monthly unemployment rate and m-o-m inflation.\
+This example is based on Ghysels - Kvedaras - Zemlys: Journal of Statistical Software, 2016. See <https://www.jstatsoft.org/article/view/v072i04>.
+
+Preliminaries
+
+```{r}
+rm(list = ls())
+library(midasr)  # loads the midasr package
+```
+
+```{r}
+hicp_xts_m <- pdfetch_EUROSTAT("prc_hicp_midx", FREQ="M", UNIT="I15", COICOP = "CP00", GEO="CZ")
+gdp_xts_q <- pdfetch_EUROSTAT("namq_10_gdp", S_ADJ="SCA", NA_ITEM="B1GQ", FREQ="Q", UNIT="CLV10_MEUR", GEO="CZ")
+# unemp_xts_m <- pdfetch_EUROSTAT("une_rt_m", S_ADJ="NSA", SEX="T", AGE="TOTAL", FREQ="M", UNIT="PC_ACT", GEO="CZ") 
+unemp_xts_m <- pdfetch_EUROSTAT("une_rt_m", S_ADJ="SA", SEX="T", AGE="TOTAL", FREQ="M", UNIT="PC_ACT", GEO="CZ")
+# seasonally adjusted series looks rather noisy. However, manual seasonal adjustment leads to very similar outcome.
+```
+
+```{r}
+plot.xts(hicp_xts_m, col = "black", lwd = 2, main = "HICP, Czech Republic, 2015 = 100", grid.col = NA, yaxis.left = TRUE)
+```
+
+```{r}
+plot.xts(gdp_xts_q, col = "black", lwd = 2, main = "Real GDP, Czech Republic, mil. eur", grid.col = NA, yaxis.left = TRUE)
+```
+
+```{r}
+plot.xts(unemp_xts_m, col = "black", lwd = 2, main = "Unemployment rate, Czech Republic, %", grid.col = NA, yaxis.left = TRUE)
+```
+
+Conversion to ts objects and seasonal adjustment of HICP that was not seasonally adjusted from the source:
+
+```{r}
+hicp_xts_m <- ts_first_of_period(hicp_xts_m)
+hicp_ts <- ts_ts(hicp_xts_m)
+gdp_xts_q <- ts_first_of_period(gdp_xts_q)
+gdp_ts <- ts_ts(gdp_xts_q)
+unemp_xts_m <- ts_first_of_period(unemp_xts_m)
+unemp_ts <- ts_ts(unemp_xts_m)
+
+hicp_ts_seas <- seas(hicp_ts)
+autoplot(hicp_ts_seas)
+# unemp_ts_seas <- seas(unemp_ts)
+# autoplot(unemp_ts_seas)
+hicp <- final(hicp_ts_seas)
+# unemp <- final(unemp_ts_seas)
+unemp <- unemp_ts
+gdp <- gdp_ts
+
+log_gdp <- log(gdp)
+```
+
+##### Forecast for 2020Q3 - 2021Q4
+
+```{r}
+# Subsampling
+y <- window(gdp, end = c(2021, 4))
+u <- window(unemp, end = c(2021, 12))
+p <- window(hicp, end = c(2021, 12))
+
+# Calculate the log differences
+yg <- diff(log(y))*100
+pg <- diff(log(p))*100
+
+# It is necessary to equalize the sample size: time series of GDP and HICP starts in 1996, unemployment rate in 1993, empty observations are filled with NAs.
+nu <- ts(c(u), start = start(u), frequency = 12)
+ny <- ts(c(rep(NA, 13), yg), start = start(u), frequency = 4)
+np <- ts(c(rep(NA, 37), pg), start = start(u), frequency = 12)
+
+# Graph of the data
+plot.ts(nu, xlab = "Time", ylab = "Percentages", col = 4, ylim = c(-5, 10))
+lines(ny, col = 2)
+lines(np, col = 3)
+abline(a=0,b=0,col="darkgray")
+
+# Set the subsample for estimation from 1996Q1 to 2020Q2.
+yy <- window(ny, start = c(1996, 1), end = c(2020, 2))
+uu <- window(nu, start = c(1996, 1), end = c(2020, 6))
+pi <- window(np, start = c(1996, 1), end = c(2020, 6))
+```
+
+##### Estimate the MIDAS model
+
+###### 1. Unrestricted MIDAS
+
+Frequency alignment achieved via `mls` command. Syntax: `mls(x,k,m)` ... `x` = series, `k` =lags of of the high-frequency variable; `m` = frequency ratio between high and low frequency. In our case, we have low-frequency variable `yy`, i.e. `k = m = 1`. The high-frequency variable has 8 lags, starting from lag 3 which implies `k = 3:11`; `m = 3` because there are 3 months within each quarter.
+
+```{r}
+# Unrestricted MIDAS
+
+um <- midas_r(yy ~ mls(yy, 1, 1) + mls(uu, 3:11, 3) + mls(pi, 3:11, 3), start = NULL)
+coef(um)  #prints just coefficients
+summary(um)  
+
+# point forecast for the 2020Q3 with values of high-frequency variable x provided
+unew <- window(nu, start = c(2020, 7), end = c(2020, 9))
+pinew <- window(np, start = c(2020, 7), end = c(2020, 9))
+forecast(um, newdata = list(uu = unew, pi = pinew), se=TRUE)
+forecast(um, newdata = list(uu = rep(NA,3), pi = rep(NA,3)), se=TRUE) #without supplying new data
+```
+
+###### 2: Restricted Midas
+
+Here Beta polynomial (`nbeta`) is used. If Almon lags prefered - change `nbeta` to `nealmon`.\
+With restricted MIDAS, it is necessary to set starting values for each variable with restricted coefficients, this is required by underlying `nls` function. Implicitly, this defines the number of parameters of the constraint function. When not supplied, unrestricted MIDAS is estimated.\
+Choice of these parameters, however, not well documented, so the errors are not robust. Minor alteration of parameters does not change the estimates of the coefficients.
+
+```{r}
+beta0 <- midas_r(yy ~ mls(yy, 1, 1) + mls(uu, 3:11, 3, nbeta) + mls(pi, 3:11, 3, nbeta), start = list(uu = c(-0.75, 0.5, 0),pi = c(-0.5, 0.5, 0)))
+summary(beta0)
+coef(beta0)
+
+forecast(beta0, newdata = list(uu = unew, pi = pinew), se=TRUE)
+forecast(beta0, newdata = list(uu = rep(NA,3), pi = rep(NA,3)), se=TRUE) #without supplying new data, works only for one quarter ahead.
+```
+
+Different MIDAS with the `nbetaMT`, which has non-zero weights:
+
+```{r}
+betan <- midas_r(yy ~ mls(yy, 1, 1) + mls(uu, 3:11, 3, nbetaMT)+ mls(pi, 3:11, 3, nbetaMT), start = list(uu = c(-0.75, 0.5, 0,0),pi = c(-0.5, 0.5, 0,0)))
+coef(betan)
+summary(betan)
+forecast(betan, newdata = list(uu = unew, pi = pinew), se=TRUE)
+```
+
+Actual value of y in 2020Q3:
+
+```{r}
+
+
+
+```
+
+Compare out-of-sample forecasting performance of all three models with the help of the average_forecast function. It compares out-of-sample predictions with the data.
+
+```{r}
+## Split the data into in-sample and out-of-sample
+fulldata <- list(uu = window(nu, start = c(1996, 1), end = c(2021, 12)), pi = window(np, start = c(1996, 1), end = c(2021, 12)), yy = window(ny, start = c(1996, 1), end = c(2021, 4)))
+insample <- 1:length(yy)
+outsample <- (1:length(fulldata$yy))[-insample]
+
+## Calculate the individual forecasts of each of the model and their weighted average
+avgf <- average_forecast(list(beta0, betan, um), data = fulldata, insample = insample, outsample = outsample, type = "fixed")
+sqrt(avgf$accuracy$individual$MSE.out.of.sample)
+## The unrestricted MIDAS has the lowest MSE
+
+avgf$forecast #forecasts of all three models
+avgf$avgforecast #average of forecasts given three alternative weighting schemes (see help for the details)
+
+## Simple plot comparing forecasts
+plot(avgf$xout, main = "Forecasts of MIDAS regressions vs. actual data", ylim = c(-12,7))
+lines(avgf$forecast[,1], col = 1)
+lines(avgf$forecast[,2], col = 2)
+lines(avgf$forecast[,3], col = 3)
+lines(avgf$avgforecast[,4], col= 4)
+abline(a=0,b=0,col="darkgray")
+```
+
+```{r}
+# Now recursive instead of fixed forecasts (model is reestimated each time by increasing the insample by one low frequency observation)
+avgf_rec <- average_forecast(list(beta0, betan, um), data = fulldata, insample = insample, outsample = outsample, type = "recursive")
+sqrt(avgf_rec$accuracy$individual$MSE.out.of.sample)
+
+avgf_rec$forecast #forecasts of all three models
+avgf_rec$avgforecast #average of forecasts
+
+plot(avgf_rec$xout, main = "Recursive forecasts of MIDAS regressions vs. actual data", ylim = c(-12,7))
+lines(avgf_rec$forecast[,1], col = 1)
+lines(avgf_rec$forecast[,2], col = 2)
+lines(avgf_rec$forecast[,3], col = 3)
+lines(avgf_rec$avgforecast[,4], col= 4)
+abline(a=0,b=0,col="darkgray")
+#In this case, the model misses the rebound after the COVID recession.
+```
+
+##### Predictions for 2022Q2
+
+```{r}
+# Subsampling
+y <- window(gdp, end = c(2022, 3))
+u <- window(unemp, end = c(2022, 12))
+p <- window(hicp, end = c(2022, 12))
+
+yg <- diff(log(y))*100
+pg <- diff(log(p))*100
+
+nu <- ts(c(u), start = start(u), frequency = 12)
+ny <- ts(c(rep(NA, 13), yg), start = start(u), frequency = 4)
+np <- ts(c(rep(NA, 37), pg), start = start(u), frequency = 12)
+
+# Graph of the data
+plot.ts(nu, xlab = "Time", ylab = "Percentages", col = 4, ylim = c(-5, 10))
+lines(ny, col = 2)
+lines(np, col = 3)
+abline(a=0,b=0,col="darkgray")
+
+# Set the subsample for estimation from 1996Q1 to 2022Q3.
+yy <- window(ny, start = c(1996, 1), end = c(2022, 3))
+uu <- window(nu, start = c(1996, 1), end = c(2022, 9))
+pi <- window(np, start = c(1996, 1), end = c(2022, 9))
+
+beta0 <- midas_r(yy ~ mls(yy, 1, 1) + mls(uu, 3:11, 3, nbeta) + mls(pi, 3:11, 3, nbeta), start = list(uu = c(-0.75, 0.5, 0),pi = c(-0.5, 0.5, 0)))
+coef(beta0) #prints the estimated coefficients
+
+# point forecast for the 2022Q2 with values of high-frequency variable x provided
+unew <- window(nu, start = c(2022, 10), end = c(2022, 12))
+pinew <- window(np, start = c(2022, 10), end = c(2022, 12))
+forecast(beta0, newdata = list(uu = unew, pi = pinew), se=TRUE)
+forecast(beta0, newdata = list(uu = rep(NA,3), pi = rep(NA,3)), se=TRUE) #without supplying new data
+
+# Different MIDAS with the nbetaMT, which has non-zero weights.
+betan <- midas_r(yy ~ mls(yy, 1, 1) + mls(uu, 3:11, 3, nbetaMT)+ mls(pi, 3:11, 3, nbetaMT), start = list(uu = c(-0.75, 0.5, 0,0),pi = c(-0.5, 0.5, 0,0)))
+coef(betan)
+#summary(betan)
+forecast(betan, newdata = list(uu = unew, pi = pinew), se=TRUE)
+
+## Unrestricted MIDAS
+um <- midas_r(yy ~ mls(yy, 1, 1) + mls(uu, 3:11, 3) + mls(pi, 3:11, 3), start = NULL)
+coef(um)
+#summary(um)
+forecast(um, newdata = list(uu = unew, pi = pinew), se=TRUE)
+```
+
+The actual value of y in 2022Q2 according to the CZSO as of August 19 was 0.2% (q-o-q).
+
+Note that predictions for the next periods require projections of exogenous variables.
