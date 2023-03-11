@@ -1,0 +1,12 @@
+# R temp files
+**/*.Rhistory
+**/*.Rdata
+
+Excel temp files
+**/~$*.xlsx
+
+# Shortcuts
+*.lnk
+
+# Various
+resources/
