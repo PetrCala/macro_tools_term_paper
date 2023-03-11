@@ -18,6 +18,29 @@ loadPackages <- function(package_list){
   print('All packages loaded successfully')
 }
 
+####################### DATA TRANSFORMATION ########################
+#' Input an .xts object and adjust it for seasonality. Return
+#' the adjusted object.
+#' @param data - The .xts data object to be seasoned.
+handleSeasonality <- function(data, series_name){
+  data_ts <- ts_first_of_period(data)
+  data_ts <- ts_ts(data_ts)
+  data_seasonal <- decompose(data_ts) # $x, $seasonal, $trend, $random
+
+  # Extract the seasonal componenets
+  data_adjusted <- data_seasonal$x # Seasonally adjusted price index
+  data_seasonal_fluctuations <- data_seasonal$seasonal # Seasonal fluctuations
+
+  # Plot
+  plot_main <- paste0(series_name, " seasonal fluctuations")
+  plot.ts(data_seasonal_fluctuations, main = plot_main)
+
+  # Return quietly
+  invisible(data_adjusted)
+}
+
+####################### STRUCTURAL VALIDATION ########################
+
 #' Check structural integrity of the time series,
 #' as well as stationarity, etc.
 #' @param time_series - .xts object to analyze
@@ -61,3 +84,5 @@ runStructuralChecks <- function(time_series, series_name){
   acf(time_series, main=acf_title)
   pacf(time_series, main=pacf_title)
 }
+
+####################### LINEAR MODEL ESTIMATION ########################
