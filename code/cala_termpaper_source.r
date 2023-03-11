@@ -39,6 +39,28 @@ handleSeasonality <- function(data, series_name){
   invisible(data_adjusted)
 }
 
+#' Input a series and calculate the percentage changes. Return an xts object.
+#' 
+#' @param input_series - The series to transform
+#' @param look_back [int] - Number of periods to look back. Set to 1 for monthly changes,
+#'  to 4 for quarterly, and 12 for yearly.
+getPercentageChanges <- function(input_series, series_name, look_back = 1){
+  new_series <- xts(rep(NA,length(input_series)), order.by=index(input_series))
+  new_dates <- c()
+  for (i in 1:length(input_series)){
+      if (i%%look_back==0){ # Desired iterations
+          perc_change <- ((as.numeric(input_series[i]) / as.numeric(input_series[i-look_back]))  - 1) * 100 # Percentage change
+          if (length(perc_change)!=0){ # Valid value
+              new_series[i] <- perc_change
+              new_date <- index(new_series[i])
+              new_dates <- append(new_dates, new_date)
+          }
+      }
+  }
+  new_series <- na.omit(new_series[is.finite(new_series),])
+  colnames(new_series) <- series_name
+  return(new_series)
+}
 ####################### STRUCTURAL VALIDATION ########################
 
 #' Check structural integrity of the time series,
@@ -86,3 +108,24 @@ runStructuralChecks <- function(time_series, series_name){
 }
 
 ####################### LINEAR MODEL ESTIMATION ########################
+
+#' Specify a time series and return a data frame of p-values from the Box-Ljung test
+#' for autocorrelation. Every combination of orders is considered up until the order 5.
+getBoxLjung <- function(series){
+    raw_data <- c()
+    for (AR_order in 0:4) {
+        for (MA_order in 0:4) {
+            row <- c(AR_order, MA_order)
+            model <- arima(series, order = c(AR_order, 0, MA_order))
+            for (lag in seq(4,12, by = 4)) {
+                p <- Box.test(model$residuals, type = "Ljung-Box", lag = lag)$p.value
+                row <- append(row, p)
+            }
+            raw_data <- append(raw_data, row)
+        }
+    }
+    p_vals <- matrix(raw_data, ncol = 5, byrow = TRUE)
+    df <- data.frame(p_vals)
+    colnames(df) <- c('AR order', 'MA order', '4 lags', '8 lags', '12 lags')
+    return(df)
+}
