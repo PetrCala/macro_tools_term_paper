@@ -53,7 +53,7 @@ getPercentageChanges <- function(input_series, series_name, look_back = 1){
   new_dates <- c()
   for (i in 1:length(input_series)){
       if (i%%look_back==0){ # Desired iterations
-          perc_change <- ((as.numeric(input_series[i]) / as.numeric(input_series[i-look_back]))  - 1) * 100 # Percentage change
+          perc_change <- ((as.numeric(input_series[i]) / as.numeric(input_series[i-look_back]))  - 1) * 100 # Percentage change          }
           if (length(perc_change)!=0){ # Valid value
               new_series[i] <- perc_change
               new_date <- index(new_series[i])
@@ -136,4 +136,45 @@ getBoxLjung <- function(series){
     df <- data.frame(p_vals)
     colnames(df) <- c('AR order', 'MA order', '1 lag', '2 lags', '3 lags')
     return(df)
+}
+
+####################### FORECASTS ########################
+
+#' Input a time series, the number of periods you want to forecast for
+#' and make that forecast. Return the forecast in the form of an xts object
+#' with the new periods. Automatically plots the results, unless silenced.
+#' @param time_series - An .xts object of the series to forecast.
+#' @param periods [int] - Number of periods to forecast ahead for
+#' @param date_frequency [str] - Frequency of dates. Can be one of "day",
+#'  "quarter", "year".
+#' @param print_plots [bool] - If true, print out the forecast plot with CI.
+forecastData <- function(time_series, periods, date_frequency, series_name, print_plots=T){
+  # Validate input
+  if (!date_frequency %in% c("month", "quarter", "year")){
+    stop('Invalid day frequency')
+  }
+
+  # Get the forecast
+  forecast_data <- forecast(time_series, h = periods)
+  mean_forecast <- forecast_data$mean
+  upper_ci <- forecast_data$upper[,2]
+  lower_ci <- forecast_data$lower[,2]
+
+  if (print_plots){
+    plot_name <- paste0(series_name, " 2 years ahead forecast")
+    plot.ts(time_series, main=plot_name, xlab="Time", ylab="Value")
+    lines(mean_forecast, col="blue")
+    lines(upper_ci, col="red")
+    lines(lower_ci, col="red")
+    legend("topright", legend=c("Mean Forecast", "95% CI"), col=c("blue", "red"), lty=1)
+  }
+
+  # Generate new dates
+  last_available_date <- index(time_series)[length(time_series)]
+  new_dates <- seq(last_available_date, by = date_frequency, length.out = periods)
+
+  # New forecast data bundled into an xts object
+  new_data <- xts(mean_forecast, order.by= new_dates)
+
+  invisible(new_data)
 }
