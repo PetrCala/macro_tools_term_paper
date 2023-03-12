@@ -62,6 +62,7 @@ getPercentageChanges <- function(input_series, series_name, look_back = 1){
       }
   }
   new_series <- na.omit(new_series[is.finite(new_series),])
+  index(new_series) <- new_dates
   colnames(new_series) <- series_name
   return(new_series)
 }
