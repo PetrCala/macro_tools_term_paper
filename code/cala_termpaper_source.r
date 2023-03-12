@@ -23,6 +23,7 @@ loadPackages <- function(package_list){
 #' the adjusted object.
 #' @param data - The .xts data object to be seasoned.
 handleSeasonality <- function(data, series_name){
+  new_dates <- index(data)
   data_ts <- ts_first_of_period(data)
   data_ts <- ts_ts(data_ts)
   data_seasonal <- decompose(data_ts) # $x, $seasonal, $trend, $random
@@ -35,8 +36,11 @@ handleSeasonality <- function(data, series_name){
   plot_main <- paste0(series_name, " seasonal fluctuations")
   plot.ts(data_seasonal_fluctuations, main = plot_main)
 
+  # To xts
+  data_new <- xts(data_adjusted, order.by=new_dates)
+  colnames(data_new) <- series_name
   # Return quietly
-  invisible(data_adjusted)
+  invisible(data_new)
 }
 
 #' Input a series and calculate the percentage changes. Return an xts object.
@@ -67,7 +71,7 @@ getPercentageChanges <- function(input_series, series_name, look_back = 1){
 #' as well as stationarity, etc.
 #' @param time_series - .xts object to analyze
 #' @param series_name - name of the series, e.g. CPI
-runStructuralChecks <- function(time_series, series_name){
+runStructuralChecks <- function(time_series, series_name, print_plots=T){
   print(paste0('Running structural checks for ', series_name))
 
   # Detect structural breaks using the breakpoints function
@@ -82,29 +86,32 @@ runStructuralChecks <- function(time_series, series_name){
   adf_test <- adf.test(time_series, k = 1)
   print(adf_test)
   if(adf_test$p.value < 0.05) {
-    print('The m-o-m transformed series is stationary and has zero order of integration')
+    print('The transformed series is stationary and has zero order of integration')
   } else {
     # Perform ADF test on the first difference of the series
-    adf_test_diff <- adf.test(diff(pct_change))
+    # pct_change <- getPercentageChanges(time_series, series_name)
+    pct_diff <- na.omit(diff(time_series))
+    adf_test_diff <- adf.test(pct_diff)
     if(adf_test_diff$p.value < 0.05) {
-      print('The m-o-m transformed series is integrated of order 1')
+      print('The transformed series is integrated of order 1')
     } else {
-      print('The m-o-m transformed series is not stationary')
+      print('The transformed series is not stationary')
     }
   }
+  if (print_plots){
+    # Plot the periodogram and spectrum
+    periodogram_title <- paste0('Periodogram of ', series_name)
+    spectrum_title <- paste0('Spectrum of ', series_name)
+    periodogram(time_series, main=periodogram_title)
+    spectrum(time_series, main=spectrum_title)
 
-  # Plot the periodogram and spectrum
-  periodogram_title <- paste0('Periodogram of ', series_name)
-  spectrum_title <- paste0('Spectrum of ', series_name)
-  periodogram(time_series, main=periodogram_title)
-  spectrum(time_series, main=spectrum_title)
 
-
-  # Plot the ACF and PACF functions
-  acf_title <- paste0('ACF of ', series_name)
-  pacf_title <- paste0('PACF of ', series_name)
-  acf(time_series, main=acf_title)
-  pacf(time_series, main=pacf_title)
+    # Plot the ACF and PACF functions
+    acf_title <- paste0('ACF of ', series_name)
+    pacf_title <- paste0('PACF of ', series_name)
+    acf(time_series, main=acf_title)
+    pacf(time_series, main=pacf_title)
+  }
 }
 
 ####################### LINEAR MODEL ESTIMATION ########################
@@ -113,11 +120,11 @@ runStructuralChecks <- function(time_series, series_name){
 #' for autocorrelation. Every combination of orders is considered up until the order 5.
 getBoxLjung <- function(series){
     raw_data <- c()
-    for (AR_order in 0:4) {
-        for (MA_order in 0:4) {
+    for (AR_order in 1:5) {
+        for (MA_order in 1:5) {
             row <- c(AR_order, MA_order)
             model <- arima(series, order = c(AR_order, 0, MA_order))
-            for (lag in seq(4,12, by = 4)) {
+            for (lag in seq(1,3, by = 1)) {
                 p <- Box.test(model$residuals, type = "Ljung-Box", lag = lag)$p.value
                 row <- append(row, p)
             }
@@ -126,6 +133,6 @@ getBoxLjung <- function(series){
     }
     p_vals <- matrix(raw_data, ncol = 5, byrow = TRUE)
     df <- data.frame(p_vals)
-    colnames(df) <- c('AR order', 'MA order', '4 lags', '8 lags', '12 lags')
+    colnames(df) <- c('AR order', 'MA order', '1 lag', '2 lags', '3 lags')
     return(df)
 }
