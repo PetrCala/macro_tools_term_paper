@@ -43,6 +43,7 @@ handleSeasonality <- function(data, series_name){
   invisible(data_new)
 }
 
+#' INCORRECT SPECIFICATIONS - DO NOT USE
 #' Input a series and calculate the percentage changes. Return an xts object.
 #' 
 #' @param input_series - The series to transform
@@ -76,11 +77,11 @@ runStructuralChecks <- function(time_series, series_name, print_plots=T){
   print(paste0('Running structural checks for ', series_name))
 
   # Detect structural breaks using the breakpoints function
-  # print('Testing for breakpoints...')
-  # bp <- breakpoints(time_series ~ 1)
+  print('Testing for breakpoints...')
+  bp <- breakpoints(time_series ~ 1)
 
-  # # Test the stationarity of the segments between breakpoints
-  # statcheck(bp)
+  # Test the stationarity of the segments between breakpoints
+  statcheck(bp)
 
   # Run the augmented Dickey-Fuller test
   print(paste0('Running the augmented Dickey-Fuller test for ', series_name, '...'))
