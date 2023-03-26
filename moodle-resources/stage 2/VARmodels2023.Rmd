@@ -1,0 +1,490 @@
+---
+title: '5. Vector Autoregressions: A Primer'
+author: "Jaromir Baxa"
+date: "2022-09-07"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#### Outline:
+
+I. VAR model for the United States, 1960 - 2008\
+II. Generating nice graphical output with R\
+III. Sample sensitivity of the impulse responses\
+IV. Predictions for 2022 based on VAR model
+
+```{r}
+rm(list=ls())
+
+library(xts)
+library(pdfetch) #Library for loading FRED data
+library(ggplot2) #Library for plotting
+library(mFilter) #Library for HP filter
+library(tsbox)   #Library for time series conversion
+library(forecast)#Library for simple plotting
+```
+
+Loading some data from FRED
+
+```{r}
+data_var <- pdfetch_FRED(c("GDP", "GDPC1", "GDPPOT", "FEDFUNDS", "CPIAUCSL", "PPIACO", "UNRATE", "M2SL", "GS10"))
+data_var <- to.period(data_var, period = "quarter", OHLC = FALSE)
+data_var <- ts_first_of_period(data_var) #to assure consistency in dates across time series objects
+View(data_var)
+```
+
+Transformationsauto
+
+```{r}
+data_var$lgdp <- log(data_var$GDPC1) # Log of real GDP
+data_var$lgdp_pot <- log(data_var$GDPPOT) # Log of potential GDP
+data_var$gdpgap <- 100*(data_var$lgdp - data_var$lgdp_pot) # Gap as a difference between actual and potential output
+hp_gdp <- hpfilter(data_var$lgdp, freq = 1600, type="lambda")
+data_var$gdpgap_hp <- 100*hp_gdp$cycle
+data_var$d_lgdp <- 100*diff(data_var$lgdp,1) #first differences
+data_var$gdp_growth <- 100*diff(data_var$lgdp,4) #seasonal difference (annual growth), in percent
+
+data_var$l_cpi <- log(data_var$CPIAUCSL)
+data_var$inflation <- 100*diff(data_var$l_cpi, 4) #inflation as y-o-y change in CPI, in percent
+#data_var$infrate <- 1/4*(data_var$inflation + lag(data_var$inflation, k=1) + lag(data_var$inflation, k=2) + lag(data_var$inflation, k=3))
+
+data_var$l_ppiaco <- log(data_var$PPIACO)
+data_var$ppiaco_ld <- 100*diff(data_var$l_ppiaco,4)
+
+data_var$unrate <- data_var$UNRATE
+data_var$fedfunds <- data_var$FEDFUNDS
+data_var$gs10 <- data_var$GS10
+
+data_var$m2 <- data_var$M2SL
+data_var$m2_l <- log(data_var$m2)
+data_var$m2_ld <- 100*diff(data_var$m2_l,4)
+```
+
+#### I. VAR model: Pre Great Recession sample
+
+```{r}
+library(vars) #main library for VAR models in R
+```
+
+Selecting the data and setting the sample for estimation.
+
+```{r}
+data_6208 <- data_var["1962-01-01/2008-07-01"]
+vardata1 <- data_6208[,c("gdp_growth", "inflation", "fedfunds", "ppiaco_ld")]
+autoplot(vardata1) #simple plot for a brief check of the data, for outliers seasonality etc.
+```
+
+Lag length selection
+
+```{r}
+var1.select <- VARselect(vardata1, lag.max=6, type ="const")
+var1.select$selection
+```
+
+Estimation
+
+```{r}
+var1 <- VAR(vardata1, p=6, type = "const")
+summary(var1)
+plot(var1)
+```
+
+Forecasting
+
+```{r}
+predict(var1, n.ahead = 12, ci = 0.95)
+plot(predict(var1))
+fanchart(predict(var1))
+```
+
+##### Impulse responses
+
+Identification in this case = Cholesky-based i.e. Cholesky decomposition of residuals covariance matrix is used to generate IRF and FEVD.\
+Consequences: based on ordering, each variables influences contemporaneously only those ordered after it.
+
+```{r}
+nAhead <- 20
+var1irf <- irf(var1, n.ahead = nAhead, ci = 0.95,
+              cumulative = F, boot = T, ortho = T)
+#default plots from vars package
+plot(var1irf) 
+```
+
+See responses in period 0 (= time of shock):
+
+-   gdp growth influences all other variables contemporaneously
+
+-   cpi contemporaneously influences all variables but gdp growth
+
+-   fedrate contemporaneously influences also commodity prices
+
+-   commodity price index has contemporary impact only on itself
+
+-   price puzzle is present
+
+```{r}
+plot(irf(var1,impulse = "fedfunds", response = "fedfunds", n.ahead = 20)) 
+plot(irf(var1,impulse = "fedfunds", response = "gdp_growth", n.ahead = 20)) 
+plot(irf(var1,impulse = "fedfunds", response = "inflation", n.ahead = 20))
+```
+
+Forecast error variance decomposition:
+
+```{r}
+plot(fevd(var1))
+```
+
+Same thing by means of package svars:
+
+```{r}
+# install.packages("svars")
+
+library(svars)
+
+var1_cholesky <- id.chol(var1) 
+var1_cholesky_svarsirf <- irf(var1_cholesky, n.ahead = 20) 
+plot(var1_cholesky_svarsirf)
+
+var1_bootirf <- wild.boot(var1_cholesky, design = "fixed", distr = "gaussian", n.ahead = 20, nboot = 100) 
+
+plot(var1_bootirf) #1sd bands by default
+plot(var1_bootirf, lowerq = 0.05, upperq = 0.95)
+```
+
+Historical decompositions (requires svars package, too)
+
+```{r}
+var1_cholesky_hd <- hd(var1_cholesky, series = 1) 
+plot(var1_cholesky_hd) #not a nice bar plot one would expect
+```
+
+##### Custom impulse responses
+
+###### Example 1
+
+```{r}
+#install.packages("remotes")
+#remotes::install_github("sfeuerriegel/ResearchGroupTools")
+library("ResearchGroupTools")
+var1irf_i_y <- irf(var1, impulse = "fedfunds", response = "gdp_growth",
+                   n.ahead = nAhead, ci = 0.95,
+                   cumulative = F, boot = T, ortho = T)
+plot(var1irf_i_y)
+plotIrf(var1irf_i_y)
+```
+
+###### Example 2
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(patchwork)
+
+extract_varirf <- function(...){
+  
+  varirf_object <- list(...) #list one or more varirf input objects
+  
+  get_vec_length <- function(list_item){nrow(list_item[[1]][[1]])}
+  
+  if (!("varirf" %in% mapply(class, varirf_object))){
+    stop("this function only accepts 'varirf' class objects")
+  }
+  
+  if (length(unique(mapply(class, varirf_object)))!=1){
+    stop("all input items must be 'varirf' class objects")
+  }    
+  if (length(unique(mapply(get_vec_length, varirf_object)))!=1){
+    stop("all irf vectors must have the same length")   
+  }  
+  
+  period <- as.data.frame(0:(nrow(varirf_object[[1]][[1]][[1]])-1)) 
+  names(period) <- "period"
+  
+  for (l in 1:length(varirf_object)){
+    for (i in 1:3){
+      for (j in 1:dim(varirf_object[[l]][[i]][[1]])[2]){
+        for (k in 1:length(varirf_object[[l]][[1]])){
+          temp_colname <- paste(names(varirf_object[[l]][i]), #vector type (irf, lower, or upper)
+                                names(varirf_object[[l]][[i]])[k], #impulse name
+                                colnames(varirf_object[[l]][[i]][[k]])[j], #response name
+                                sep = "_")
+          
+          temp <- as.data.frame(varirf_object[[l]][[i]][[k]][, j]) #extracts the vector
+          
+          names(temp) <- temp_colname #add the column name (vectortype_impulse_reponse)
+          period <- cbind(period, temp) 
+        }
+        
+      }
+    }
+  }
+  names(period) <- tolower(names(period))
+  return(period)
+}
+# source: https://raw.githubusercontent.com/anguyen1210/var-tools/master/R/extract_varirf.R
+```
+
+```{r}
+multiple_varirf_var <- extract_varirf(var1irf)
+head(multiple_varirf_var)
+
+i_y_var <- multiple_varirf_var %>% 
+  ggplot(aes(x=period, y=irf_fedfunds_gdp_growth, ymin=lower_fedfunds_gdp_growth, ymax=upper_fedfunds_gdp_growth)) +
+  geom_hline(yintercept = 0, color="red") +
+  geom_ribbon(fill="grey", alpha=.2, color="grey50", linetype="dashed") +
+  geom_line() +
+  theme_light() +
+  ggtitle("Orthogonal impulse response VAR, Fed Rate - GDP growth")+
+  ylab("GDP growth")+
+  xlab("Quarter") +
+  theme(plot.title = element_text(size = 11, hjust=0.5),
+        axis.title.y = element_text(size=11))
+
+i_p_var <- multiple_varirf_var %>% 
+  ggplot(aes(x=period, y=irf_fedfunds_inflation, ymin=lower_fedfunds_inflation, ymax=upper_fedfunds_inflation)) +
+  geom_hline(yintercept = 0, color="red") +
+  geom_ribbon(fill="grey", alpha=.2, color="grey50", linetype="dashed") +
+  geom_line() +
+  theme_light() +
+  ggtitle("Orthogonal impulse response VAR, Fed Rate - Inflation")+
+  ylab("Inflation")+
+  xlab("Quarter") +
+  theme(plot.title = element_text(size = 11, hjust=0.5),
+        axis.title.y = element_text(size=11))
+
+i_r_var <- multiple_varirf_var %>% 
+  ggplot(aes(x=period, y=irf_fedfunds_fedfunds, ymin=lower_fedfunds_fedfunds, ymax=upper_fedfunds_fedfunds)) +
+  geom_hline(yintercept = 0, color="red") +
+  geom_ribbon(fill="grey", alpha=.2, color="grey50", linetype="dashed") +
+  geom_line() +
+  theme_light() +
+  ggtitle("Orthogonal impulse response VAR, Fed Rate - Fed Rate")+
+  ylab("Fed Rate")+
+  xlab("Quarter") +
+  theme(plot.title = element_text(size = 11, hjust=0.5),
+        axis.title.y = element_text(size=11))
+
+i_ppiaco_var <- multiple_varirf_var %>% 
+  ggplot(aes(x=period, y=irf_fedfunds_ppiaco_ld, ymin=lower_fedfunds_ppiaco_ld, ymax=upper_fedfunds_ppiaco_ld)) +
+  geom_hline(yintercept = 0, color="red") +
+  geom_ribbon(fill="grey", alpha=.2, color="grey50", linetype="dashed") +
+  geom_line() +
+  theme_light() +
+  ggtitle("Orthogonal impulse response VAR, Fed Rate - Commodity prices")+
+  ylab("Commodity prices")+
+  xlab("Quarter") +
+  theme(plot.title = element_text(size = 11, hjust=0.5),
+        axis.title.y = element_text(size=11))
+
+i_y_var + i_p_var + i_r_var + i_ppiaco_var
+```
+
+###### Example 3
+
+```{r}
+# set seeSD to 1 if want to see results in terms of residual
+# standard deviations (default = in terms of level responses)
+
+seeSD = 1
+cn <- colnames(vardata1)
+
+par(mfrow = c(2,2))
+divv = rep(1,length(cn))
+if (seeSD == 1){divv = (diag(summary(var1)$covres))^(1/2)}
+
+for (ii in 1:length(cn)){
+  lev <- var1irf$irf[[ii]]
+  upp <- var1irf$Upper[[ii]]
+  low <- var1irf$Lower[[ii]]
+  
+  for (jj in 1:length(cn)){
+    ylimm = c(min(low[,jj],lev[,jj],0),
+              max(upp[,jj],lev[,jj],0))/divv[jj]
+    plot(0:nAhead,lev[,jj]/divv[jj],type = "l",ylim = ylimm, ann=F) 
+    title(ylab = paste("resp of", cn[jj]),
+          main=paste("impulse to",  cn[ii]))
+    lines(0:nAhead,(0:nAhead)*0, col="gray")
+    lines(0:nAhead,low[,jj]/divv[jj],lty = 2, col="red")
+    lines(0:nAhead,upp[,jj]/divv[jj],lty = 2, col="red")
+  }
+}
+
+# note:
+# what happens, if ortho = F ? - no decomposition at all,
+# shocking each variable irrespectively to the covariance
+# matrix (as if there was identify covariance matrix)
+# => responses in period=1 are equal to "1" for shocked 
+#    variables and 0 otherwise
+```
+
+##### Custom plots of FEVDs
+
+```{r}
+par(mfrow =c(2,2))
+for (ii in 1:length(cn)){
+  barplot(t(fevd(var1,n.ahead = 30)[[ii]]),
+          col=c("blue","red","gray","green"),
+          legend = cn, ann=F)
+  title(main=paste("FEVD of",  cn[ii]))
+  
+}
+
+# for gdp growth, only gdp growth shock has contemporary effect
+#  => first column contains gdpGap only
+# for cpi, cpi and gdpGap shocks are present in the first
+# perod etc.
+```
+
+##### Custom historical decomposition
+
+```{r}
+# install.packages("reshape")
+library(reshape)
+library(data.table)
+
+xx <- as.data.frame(var1_cholesky_hd$hidec)
+#dfhd = xx
+dfhd = xx[,c("V1","Cumulative effect of  gdp_growth shock on  gdp_growth", "Cumulative effect of  inflation shock on  gdp_growth", "Cumulative effect of  fedfunds shock on  gdp_growth", "Cumulative effect of  ppiaco_ld shock on  gdp_growth")]
+dfhd.mlt <- melt(dfhd, id = "V1") # melting the data frame #
+options(repr.plot.height = 8, repr.plot.width = 20)
+ggplot(dfhd.mlt, aes(x = V1, y = value, fill = variable)) + 
+  geom_bar(stat = "identity", width = 0.6) + 
+  guides(fill = guide_legend(reverse = TRUE))
+```
+
+#### II. VAR model: Volcker-Greenspan era
+
+```{r}
+data_7908 <- data_var["1978-01-01/2008-07-01"]
+vardata2 <- data_7908[,c("gdp_growth", "inflation", "fedfunds", "ppiaco_ld")]
+var2.select <- VARselect(vardata2, lag.max=6, type ="const")
+var2.select$selection
+var2 <- VAR(vardata2, p=6, type = "const")
+#summary(var2)
+#plot(var2)
+#plot(irf(var2, n.ahead = 20))
+plot(irf(var2,impulse = "fedfunds", response = "fedfunds", n.ahead = 20))
+plot(irf(var2,impulse = "fedfunds", response = "gdp_growth", n.ahead = 20))
+plot(irf(var2,impulse = "fedfunds", response = "inflation", n.ahead = 20))
+```
+
+```{r}
+var2_cholesky <- id.chol(var2) #performs Cholesky identification
+var2_bootirf <- wild.boot(var2_cholesky, design = "fixed", distr = "gaussian", n.ahead = 20, nboot = 100) 
+plot(var2_bootirf, lowerq = 0.05, upperq = 0.95)
+```
+
+#### III. VAR model: Volcker-Greenspan + Zero-lower bound period
+
+For the period after the Great Recession, characterized by the zero-lower bound of interest rates and unconventional monetary policies, we replace the fed rate by the so-called shadow rate.
+
+```{r}
+#Shadow rate - construction from the federal funds rate and the shadow rate from Cynthia Wu's website
+data_shadow6008 <- data_var$FEDFUNDS["1959-01-01/2008-12-31"]
+data_shadow6008 <- ts_first_of_period(data_shadow6008)
+data_shadow0915 <- ts(c(0.75,0.02,-0.41,-0.15,-0.48,-0.54,-0.80,-0.88,-0.99,-1.12,-1.40,-1.47,-1.27,-1.11,-1.36,-1.43,-1.44,-0.97,-1.80,-2.13,-2.62,-2.89,-2.81,-2.42,-1.81,-1.38,-0.74,-0.004),start=c(2009,01), frequency = 4)
+data_shadow0915 <- ts_xts(data_shadow0915)
+data_shadow1620 <- data_var$FEDFUNDS["2016-01-01/2020-03-01"]
+data_shadow2021 <- ts(c(0.40,0.08,-0.29,-1.56,-1.83,-1.81,-1.15), start = c(2020,02), frequency = 4)
+data_shadow2021 <- ts_xts(data_shadow2021)
+data_shadow22end <- data_var$FEDFUNDS["2022-01-01/"]
+data_var$shadowrate <- rbind(data_shadow6008,data_shadow0915,data_shadow1620,data_shadow2021,data_shadow22end)
+#autoplot(data_var$shadowrate)
+
+recessions.df = read.table(textConnection(
+  "Peak, Trough
+      1960-04-01, 1961-02-01
+      1969-12-01, 1970-11-01
+      1973-11-01, 1975-03-01
+      1980-01-01, 1980-07-01
+      1981-07-01, 1982-11-01
+      1990-07-01, 1991-03-01
+      2001-03-01, 2001-11-01
+      2007-12-01, 2009-06-01
+      2020-02-01, 2020-05-01"), sep=',',
+  colClasses=c('Date', 'Date'), header=TRUE)
+
+ggplot() +
+  geom_line(data = data_var$fedfunds, aes(x = Index, y = data_var$fedfunds, color = "Federal funds rate"), lwd = 1) +
+  geom_line(data = data_var$inflation, aes(x = Index, y = data_var$inflation, color = "Inflation"), lwd = 1) +
+  geom_hline(yintercept=0)+ 
+  geom_rect(data=recessions.df, inherit.aes=F, aes(xmin=Peak, xmax=Trough, ymin=-Inf, ymax=+Inf), fill='darkgray', alpha=0.5) +
+  theme_classic() +
+  labs(title = "United states: Inflation and Federal funds rate", x = "Quarter", y = "") +
+  labs(color="Legend") +
+  theme(legend.position="bottom")
+```
+
+```{r}
+data_7919 <- data_var["1978-01-01/2019-12-01"]
+vardata3 <- data_7919[,c("gdp_growth", "inflation", "shadowrate", "ppiaco_ld")]
+autoplot(vardata3)
+```
+
+```{r}
+var3.select <- VARselect(vardata3, lag.max=6, type ="const")
+var3.select$selection
+```
+
+```{r}
+var3 <- VAR(vardata3, p=6, type = "const")
+summary(var3)
+#plot(var3)
+#plot(irf(var3, n.ahead = 20))
+plot(irf(var3,impulse = "shadowrate", response = "shadowrate", n.ahead = 20))
+plot(irf(var3,impulse = "shadowrate", response = "gdp_growth", n.ahead = 20))
+plot(irf(var3,impulse = "shadowrate", response = "inflation", n.ahead = 20))
+#MP shock not identified
+```
+
+#### IV. VAR model: Commodity prices ordered first
+
+```{r}
+vardata4 <- data_7919[,c("ppiaco_ld", "gdp_growth", "inflation", "shadowrate")]
+var4.select <- VARselect(vardata4, lag.max=6, type ="const")
+var4.select$selection
+```
+
+```{r}
+var4 <- VAR(vardata4, p=6, type = "const")
+#summary(var4)
+#plot(var4)
+#plot(irf(var4, n.ahead = 20))
+plot(irf(var4,impulse = "shadowrate", response = "shadowrate", n.ahead = 20))
+plot(irf(var4,impulse = "shadowrate", response = "gdp_growth", n.ahead = 20))
+plot(irf(var4,impulse = "shadowrate", response = "inflation", n.ahead = 20))
+#no improvement, some price puzzle remains
+```
+
+#### V. Full sample + Forecast for 2022 and 2023
+
+```{r}
+data_6222 <- data_var["1962-01-01/2022-12-01"]
+vardata5 <- data_6222[,c("ppiaco_ld", "gdp_growth", "unrate", "inflation", "shadowrate", "m2_ld")]
+autoplot(vardata5)
+```
+
+```{r}
+var5.select <- VARselect(vardata5, lag.max=6, type ="const")
+var5.select$selection
+```
+
+```{r}
+var5 <- VAR(vardata5, p=6, type = "const")
+summary(var5)
+#plot(var5)
+#plot(irf(var5, n.ahead = 20))
+plot(irf(var5,impulse = "shadowrate", response = "shadowrate", n.ahead = 20))
+plot(irf(var5,impulse = "shadowrate", response = "gdp_growth", n.ahead = 20))
+plot(irf(var5,impulse = "shadowrate", response = "inflation", n.ahead = 20))
+```
+
+```{r}
+plot(predict(var5))
+plot(predict(var5),xlim=c(200,250))
+fanchart(predict(var5),xlim=c(200,250))
+predict(var5)
+```

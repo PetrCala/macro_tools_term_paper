@@ -22,10 +22,9 @@ loadPackages <- function(package_list){
 #' Input an .xts object and adjust it for seasonality. Return
 #' the adjusted object.
 #' @param data - The .xts data object to be seasoned.
-handleSeasonality <- function(data, series_name){
+handleSeasonality <- function(data, series_name, verbose = F){
   new_dates <- index(data)
-  data_ts <- ts_first_of_period(data)
-  data_ts <- ts_ts(data_ts)
+  data_ts <- ts_ts(data)
   data_seasonal <- decompose(data_ts) # $x, $seasonal, $trend, $random
 
   # Extract the seasonal componenets
@@ -33,8 +32,10 @@ handleSeasonality <- function(data, series_name){
   data_seasonal_fluctuations <- data_seasonal$seasonal # Seasonal fluctuations
 
   # Plot
-  plot_main <- paste0(series_name, " seasonal fluctuations")
-  plot.ts(data_seasonal_fluctuations, main = plot_main)
+  if (verbose){
+    plot_main <- paste0(series_name, " seasonal fluctuations")
+    plot.ts(data_seasonal_fluctuations, main = plot_main)
+  }
 
   # To xts
   data_new <- xts(data_adjusted, order.by=new_dates)
