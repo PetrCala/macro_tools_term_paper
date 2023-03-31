@@ -1,0 +1,16 @@
+Blanchard, O. J., & Gali, J. (2007). The Macroeconomic Effects of Oil Shocks: Why are the 2000s so different from the 1970s? NBER Working Paper No. 13368. https://www.nber.org/papers/w13368
+
+This paper investigates the macroeconomic effects of oil shocks, focusing on the differences in the responses of GDP and inflation between the 1970s and the 2000s. The authors attribute these differences to changes in the structure of the economy, monetary policy, and the nature of the oil shocks themselves.
+Barsky, R. B., & Kilian, L. (2004). Oil and the Macroeconomy since the 1970s. The Journal of Economic Perspectives, 18(4), 115-134. https://www.jstor.org/stable/3216804
+
+This paper provides an overview of the impact of oil price shocks on the macroeconomy since the 1970s, discussing the effects on GDP growth, inflation, and the role of monetary policy. The authors argue that oil price shocks have had a significant impact on the macroeconomy but that their importance has diminished over time.
+Mankiw, N. G. (2001). The Inexorable and Mysterious Tradeoff between Inflation and Unemployment. Economic Journal, 111(471), 45-61. https://www.jstor.org/stable/798288
+
+This paper discusses the tradeoff between inflation and unemployment (often used as a proxy for GDP growth) and reviews various theories about the relationship between these variables. Although the focus is on unemployment, the insights can be applied to the relationship between GDP growth and inflation as well.
+Hamilton, J. D. (1983). Oil and the Macroeconomy since World War II. Journal of Political Economy, 91(2), 228-248. https://www.jstor.org/stable/1832055
+
+This classic paper examines the role of oil prices in the U.S. macroeconomy since World War II, finding that oil price shocks contributed significantly to several U.S. recessions. The paper provides a detailed analysis of the relationship between oil prices, GDP growth, and inflation.
+These papers provide a foundation for understanding the relationships between GDP growth, inflation, and oil prices in the macroeconomy. However, the role of uncertainty in these relationships is a more recent area of research. For a discussion on the role of uncertainty, you might want to consider the following paper:
+
+Bloom, N. (2009). The Impact of Uncertainty Shocks. Econometrica, 77(3), 623-685. https://doi.org/10.3982/ECTA6248
+This paper investigates the impact of uncertainty shocks on the macroeconomy, finding that increased uncertainty can lead to significant declines in GDP growth and increases in unemployment. The paper provides a framework for understanding the role of uncertainty in the macroeconomy and its potential interactions with other variables.
