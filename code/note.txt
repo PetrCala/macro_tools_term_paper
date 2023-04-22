@@ -1,0 +1,7 @@
+I present the solution for this part in the form of a simple extension of the previous part. This is for two simple reasons:
+-You can easily see and replicate all of the results, which all stem from the data obtained at the beginning. It thus makes no sense to
+	publish just the code for this part, as the results would not be replicable at all without all of the necessary parts.
+-We are being given continuous feedback on the procedure, so I belive there is very little incentive to start writing the term paper early.
+	The structure is the easiest to modify when I work with the .ipynb file directly. Furthermore, it is very likely the results and
+	reasoning are both subject to change, and writing a research paper before the results and concrete just seems silly. Plus it is additional,
+	unnecessary work. I hope this approach to the task is understandable, and I am looking forward to receiving the feedback on this part.
